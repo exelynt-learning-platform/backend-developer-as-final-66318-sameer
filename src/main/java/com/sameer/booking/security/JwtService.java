@@ -9,7 +9,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -18,7 +18,7 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    private final String secret;
+    private final SecretKey signingKey;
     private final long expirationMs;
 
     public JwtService(
@@ -31,20 +31,30 @@ public class JwtService {
             );
         }
 
-        int secretBytes = secret.getBytes(StandardCharsets.UTF_8).length;
+        final byte[] decodedSecret;
 
-        if (secretBytes < 32) {
-            throw new IllegalStateException("JWT_SECRET must contain at least 32 UTF-8 bytes");
+        try {
+            decodedSecret = Base64.getDecoder().decode(secret);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must be a valid Base64-encoded value", e
+            );
         }
 
-        this.secret = secret;
-        this.expirationMs = expirationMs;
-    }
+        if (decodedSecret.length < 32) {
+            throw new IllegalStateException(
+                    "JWT_SECRET must decode to at least 32 bytes"
+            );
+        }
 
-    private SecretKey signingKey() {
-        return Keys.hmacShaKeyFor(
-                secret.getBytes(StandardCharsets.UTF_8)
-        );
+        if (expirationMs <= 0) {
+            throw new IllegalStateException(
+                    "JWT_EXPIRATION_MS must be greater than 0"
+            );
+        }
+
+        this.signingKey = Keys.hmacShaKeyFor(decodedSecret);
+        this.expirationMs = expirationMs;
     }
 
     public String generateToken(UserDetails userDetails) {
@@ -67,7 +77,6 @@ public class JwtService {
             String subject) {
 
         Date now = new Date();
-
         Date expiry = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
@@ -75,7 +84,7 @@ public class JwtService {
                 .subject(subject)
                 .issuedAt(now)
                 .expiration(expiry)
-                .signWith(signingKey())
+                .signWith(signingKey)
                 .compact();
     }
 
@@ -87,7 +96,9 @@ public class JwtService {
         return extractClaim(token, Claims::getSubject);
     }
 
-    public <T> T extractClaim(String token, Function<Claims, T> resolver) {
+    public <T> T extractClaim(
+            String token,
+            Function<Claims, T> resolver) {
 
         Claims claims = extractAllClaims(token);
 
@@ -97,19 +108,22 @@ public class JwtService {
     private Claims extractAllClaims(String token) {
 
         return Jwts.parser()
-                .verifyWith(signingKey())
+                .verifyWith(signingKey)
                 .build()
                 .parseSignedClaims(token)
                 .getPayload();
     }
 
-    public boolean isTokenValid(String token, UserDetails userDetails) {
+    public boolean isTokenValid(
+            String token,
+            UserDetails userDetails) {
 
         try {
 
             String username = extractUsername(token);
 
-            return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+            return username.equals(userDetails.getUsername())
+                    && !isTokenExpired(token);
 
         } catch (ExpiredJwtException e) {
 
@@ -123,7 +137,8 @@ public class JwtService {
 
     private boolean isTokenExpired(String token) {
 
-        Date expiration = extractClaim(token, Claims::getExpiration);
+        Date expiration =
+                extractClaim(token, Claims::getExpiration);
 
         return expiration.before(new Date());
     }
