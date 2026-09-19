@@ -12,11 +12,7 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-/**
- * Seeds one ADMIN and one USER account (plus a couple of sample resources) on
- * startup so the API is immediately testable. Controlled by app.seed.enabled
- * — set SEED_ENABLED=false to disable in a real deployment.
- */
+
 @Component
 @RequiredArgsConstructor
 @Slf4j

@@ -1,0 +1,31 @@
+package com.sameer.booking.controller;
+
+import com.sameer.booking.dto.BookingRequest;
+import com.sameer.booking.entity.Booking;
+import com.sameer.booking.entity.Movie;
+import com.sameer.booking.service.BookMovieService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+
+
+@RequiredArgsConstructor
+@RestController
+public class BookMovieController {
+
+    private BookMovieService bookingService;
+
+    @PostMapping
+    public ResponseEntity<Booking> bookTicket(@RequestBody BookingRequest request){
+
+        Booking booking = bookingService.bookTicket(request);
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(booking);
+    }
+// I updated the code sir I Got where was the problem sir
+
+}
