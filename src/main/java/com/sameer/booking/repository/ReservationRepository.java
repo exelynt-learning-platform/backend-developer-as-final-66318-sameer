@@ -1,6 +1,7 @@
 package com.sameer.booking.repository;
 
 import com.sameer.booking.entity.Reservation;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
