@@ -59,7 +59,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             }
             filterChain.doFilter(request, response);
         } catch (JwtException | IllegalArgumentException e) {
-            SecurityContextHolder.clearContext();
             writeErrorResponse(response, request, "Invalid or expired JWT token");
         }
     }

@@ -21,9 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 @Service
 public class ReservationService {
@@ -40,34 +37,20 @@ public class ReservationService {
         this.userRepository = userRepository;
     }
 
+
     @Transactional
-    public ReservationResponse createReservation(
-            ReservationCreateRequest request,
-            Long currentUserId) {
+    public ReservationResponse createReservation(ReservationCreateRequest request, Long currentUserId) {
+        if (!request.getEndTime().isAfter(request.getStartTime())) {
+            throw new InvalidReservationException("End time must be after start time");
+        }
 
-        validateTime(request.getStartTime(), request.getEndTime());
-
-        Resource resource =
-                resourceService.findByIdOrThrow(request.getResourceId());
-
+        Resource resource = resourceService.findByIdOrThrow(request.getResourceId());
         if (!resource.isAvailable()) {
-            throw new InvalidReservationException(
-                    "Resource is not available for booking");
+            throw new InvalidReservationException("Resource is not available for booking");
         }
 
-        User owner = userRepository.findById(currentUserId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found"));
 
-        if (hasOverlappingReservation(
-                resource.getId(),
-                request.getStartTime(),
-                request.getEndTime(),
-                null)) {
-
-            throw new InvalidReservationException(
-                    "Resource is already booked for this time slot");
-        }
+        User owner = userRepository.getReferenceById(currentUserId);
 
         Reservation reservation = Reservation.builder()
                 .resource(resource)
@@ -78,30 +61,21 @@ public class ReservationService {
                 .status(ReservationStatus.PENDING)
                 .build();
 
-        return toResponse(
-                reservationRepository.save(reservation)
-        );
+        return toResponse(reservationRepository.save(reservation));
     }
 
     @Transactional(readOnly = true)
-    public Page<ReservationResponse> getReservations(
-            Long currentUserId,
-            boolean isAdmin,
-            ReservationStatus status,
-            BigDecimal minPrice,
-            BigDecimal maxPrice,
-            Pageable pageable) {
-
-        if (minPrice != null
-                && maxPrice != null
-                && minPrice.compareTo(maxPrice) > 0) {
-
-            throw new InvalidReservationException(
-                    "minPrice cannot be greater than maxPrice");
+    public Page<ReservationResponse> getReservations(Long currentUserId,
+                                                     boolean isAdmin,
+                                                     ReservationStatus status,
+                                                     BigDecimal minPrice,
+                                                     BigDecimal maxPrice,
+                                                     Pageable pageable) {
+        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
+            throw new InvalidReservationException("minPrice cannot be greater than maxPrice");
         }
 
-        // ADMIN sees all reservations.
-        // USER sees only their own reservations.
+        // ADMIN sees every reservation; USER is scoped to their own regardless of what they ask for.
         Long ownerFilter = isAdmin ? null : currentUserId;
 
         Specification<Reservation> spec = Specification
@@ -110,72 +84,30 @@ public class ReservationService {
                 .and(ReservationSpecification.minPrice(minPrice))
                 .and(ReservationSpecification.maxPrice(maxPrice));
 
-        return reservationRepository
-                .findAll(spec, pageable)
-                .map(this::toResponse);
+        return reservationRepository.findAll(spec, pageable).map(this::toResponse);
     }
 
     @Transactional(readOnly = true)
-    public ReservationResponse getReservationById(
-            Long id,
-            Long currentUserId,
-            boolean isAdmin) {
-
+    public ReservationResponse getReservationById(Long id, Long currentUserId, boolean isAdmin) {
         Reservation reservation = findByIdOrThrow(id);
-
-        assertOwnershipOrAdmin(
-                reservation,
-                currentUserId,
-                isAdmin,
-                "You may only view your own reservations"
-        );
-
+        assertOwnershipOrAdmin(reservation, currentUserId, isAdmin,
+                "You may only view your own reservations");
         return toResponse(reservation);
     }
 
     @Transactional
-    public ReservationResponse updateReservation(
-            Long id,
-            ReservationUpdateRequest request,
-            boolean isAdmin) {
-
+    public ReservationResponse updateReservation(Long id, ReservationUpdateRequest request, boolean isAdmin) {
         if (!isAdmin) {
-            throw new AccessDeniedCustomException(
-                    "Only administrators can fully update a reservation");
+            throw new AccessDeniedCustomException("Only administrators can fully update a reservation");
         }
 
         Reservation reservation = findByIdOrThrow(id);
 
-        validateTime(
-                request.getStartTime(),
-                request.getEndTime()
-        );
-
-        Resource resource =
-                resourceService.findByIdOrThrow(request.getResourceId());
-
-        if (!resource.isAvailable()
-                && request.getStatus() != ReservationStatus.CANCELLED) {
-
-            throw new InvalidReservationException(
-                    "Resource is not available for booking");
+        if (!request.getEndTime().isAfter(request.getStartTime())) {
+            throw new InvalidReservationException("End time must be after start time");
         }
 
-        /*
-         * CANCELLED reservations do not reserve a time slot.
-         * For other statuses, check whether another reservation
-         * already occupies the requested time range.
-         */
-        if (request.getStatus() != ReservationStatus.CANCELLED
-                && hasOverlappingReservation(
-                resource.getId(),
-                request.getStartTime(),
-                request.getEndTime(),
-                id)) {
-
-            throw new InvalidReservationException(
-                    "Resource is already booked for this time slot");
-        }
+        Resource resource = resourceService.findByIdOrThrow(request.getResourceId());
 
         reservation.setResource(resource);
         reservation.setStartTime(request.getStartTime());
@@ -183,167 +115,52 @@ public class ReservationService {
         reservation.setStatus(request.getStatus());
         reservation.setPrice(request.getPrice());
 
-        return toResponse(
-                reservationRepository.save(reservation)
-        );
+        return toResponse(reservationRepository.save(reservation));
     }
 
     @Transactional
-    public ReservationResponse updateStatus(
-            Long id,
-            ReservationStatusUpdateRequest request,
-            Long currentUserId,
-            boolean isAdmin) {
-
+    public ReservationResponse updateStatus(Long id, ReservationStatusUpdateRequest request,
+                                            Long currentUserId, boolean isAdmin) {
         Reservation reservation = findByIdOrThrow(id);
-
-        boolean isOwner =
-                reservation.getUser().getId().equals(currentUserId);
+        boolean isOwner = reservation.getUser().getId().equals(currentUserId);
 
         if (!isAdmin && !isOwner) {
-            throw new AccessDeniedCustomException(
-                    "You may only modify your own reservations");
+            throw new AccessDeniedCustomException("You may only modify your own reservations");
         }
 
-        /*
-         * USER can only cancel their own reservation.
-         * Other status changes require ADMIN.
-         */
-        if (!isAdmin
-                && request.getStatus() != ReservationStatus.CANCELLED) {
-
+        if (!isAdmin && request.getStatus() != ReservationStatus.CANCELLED) {
             throw new AccessDeniedCustomException(
-                    "You may only cancel your own reservation - "
-                            + "other status changes require an administrator"
-            );
+                    "You may only cancel your own reservation — other status changes require an administrator");
         }
 
         reservation.setStatus(request.getStatus());
-
-        return toResponse(
-                reservationRepository.save(reservation)
-        );
+        return toResponse(reservationRepository.save(reservation));
     }
 
     @Transactional
     public void deleteReservation(Long id, boolean isAdmin) {
-
         Reservation reservation = findByIdOrThrow(id);
-
+        // Deletion is destructive — restrict it to ADMIN even for the reservation's own
+        // owner; a USER cancels via updateStatus instead of deleting the record.
         if (!isAdmin) {
-            throw new AccessDeniedCustomException(
-                    "Only administrators can delete reservations");
+            throw new AccessDeniedCustomException("Only administrators can delete reservations");
         }
-
         reservationRepository.delete(reservation);
     }
 
     Reservation findByIdOrThrow(Long id) {
-
-        return reservationRepository
-                .findWithUserAndResourceById(id)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException(
-                                "Reservation not found with id: " + id
-                        ));
+        return reservationRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Reservation not found with id: " + id));
     }
 
-    private void assertOwnershipOrAdmin(
-            Reservation reservation,
-            Long currentUserId,
-            boolean isAdmin,
-            String message) {
-
-        boolean owner =
-                reservation.getUser().getId().equals(currentUserId);
-
+    private void assertOwnershipOrAdmin(Reservation reservation, Long currentUserId, boolean isAdmin, String message) {
+        boolean owner = reservation.getUser().getId().equals(currentUserId);
         if (!isAdmin && !owner) {
             throw new AccessDeniedCustomException(message);
         }
     }
 
-    private void validateTime(
-            LocalDateTime startTime,
-            LocalDateTime endTime) {
-
-        if (!endTime.isAfter(startTime)) {
-            throw new InvalidReservationException(
-                    "End time must be after start time");
-        }
-    }
-
-    /**
-     * Checks whether another active reservation overlaps
-     * with the requested time range for the same resource.
-     */
-    private boolean hasOverlappingReservation(
-            Long resourceId,
-            LocalDateTime startTime,
-            LocalDateTime endTime,
-            Long excludeReservationId) {
-
-        Specification<Reservation> specification =
-                (root, query, criteriaBuilder) -> {
-
-                    List<jakarta.persistence.criteria.Predicate> predicates =
-                            new ArrayList<>();
-
-                    // Same resource
-                    predicates.add(
-                            criteriaBuilder.equal(
-                                    root.get("resource").get("id"),
-                                    resourceId
-                            )
-                    );
-
-                    // Cancelled reservations don't block a slot
-                    predicates.add(
-                            criteriaBuilder.notEqual(
-                                    root.get("status"),
-                                    ReservationStatus.CANCELLED
-                            )
-                    );
-
-                    // Existing start < new end
-                    predicates.add(
-                            criteriaBuilder.lessThan(
-                                    root.get("startTime"),
-                                    endTime
-                            )
-                    );
-
-                    // Existing end > new start
-                    predicates.add(
-                            criteriaBuilder.greaterThan(
-                                    root.get("endTime"),
-                                    startTime
-                            )
-                    );
-
-                    // When updating, ignore the current reservation itself
-                    if (excludeReservationId != null) {
-                        predicates.add(
-                                criteriaBuilder.notEqual(
-                                        root.get("id"),
-                                        excludeReservationId
-                                )
-                        );
-                    }
-
-                    return criteriaBuilder.and(
-                            predicates.toArray(
-                                    new jakarta.persistence.criteria.Predicate[0]
-                            )
-                    );
-                };
-
-        return reservationRepository
-                .findAll(specification, Pageable.ofSize(1))
-                .hasContent();
-    }
-
     private ReservationResponse toResponse(Reservation r) {
-
         return ReservationResponse.builder()
                 .id(r.getId())
                 .resourceId(r.getResource().getId())

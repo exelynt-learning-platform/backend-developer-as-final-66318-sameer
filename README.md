@@ -36,7 +36,7 @@ Spring Boot 3, Java 17, Spring Security + JWT, and JPA/Hibernate on PostgreSQL o
 ## Project Structure
 
 ```
-src/main/java/com/madultech/booking/
+src/main/java/com/sameer/booking/
 ├── config/          # Security, OpenAPI, and DataSeeder config
 ├── controller/       # REST controllers (Auth, Resource, Reservation)
 ├── dto/               # Request/response DTOs (auth, resource, reservation, common)
