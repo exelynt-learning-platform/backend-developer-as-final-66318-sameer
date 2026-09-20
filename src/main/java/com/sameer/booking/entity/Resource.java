@@ -3,6 +3,7 @@ package com.sameer.booking.entity;
 import jakarta.persistence.*;
 import lombok.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
@@ -37,5 +38,5 @@ public class Resource {
     @OneToMany(mappedBy = "resource", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
     @ToString.Exclude
-    private List<Reservation> reservations = List.of();
+    private List<Reservation> reservations = new ArrayList<>();
 }
