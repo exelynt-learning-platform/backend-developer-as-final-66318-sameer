@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>com.sameer</groupId>
+    <groupId>com.madultech</groupId>
     <artifactId>booking-system</artifactId>
     <version>1.0.0</version>
     <name>booking-system</name>
